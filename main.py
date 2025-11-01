@@ -73,7 +73,7 @@ st.sidebar.header("Genetic Algorithm Parameters")
 
 # Note on the parameter contradiction:
 st.sidebar.info(
-    "**Note:** Your assignment's default `MUT_R` (0.2) was outside its "
+    "**Note:** The assignment's default `MUT_R` (0.2) was outside its "
     "allowed range (0.01-0.05). We are assuming the range is correct "
     "and have set the default to **0.02**."
 )
