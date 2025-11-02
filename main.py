@@ -1,169 +1,88 @@
-import csv
 import random
+import pandas as pd
 
-# Function to read the CSV file and convert it to the desired format
-def read_csv_to_dict(file_path):
-    program_ratings = {}
-    try:
-        with open(file_path, mode='r', newline='') as file:
-            reader = csv.reader(file)
-            try:
-                # Try to skip the header
-                header = next(reader)
-            except StopIteration:
-                print(f"Warning: The file '{file_path}' is empty.")
-                return {}
+# === Load Data ===
+def load_data(path):
+    """Load program ratings from CSV file"""
+    data = pd.read_csv(path)
+    print("Columns detected in dataset:", list(data.columns))
+    return data
 
-            # Now read the data rows
-            for row in reader:
-                if len(row) > 1: 
-                    program = row[0]
-                    try:
-                        ratings = [float(x) for x in row[1:]]
-                        program_ratings[program] = ratings
-                    except ValueError:
-                        print(f"Warning: Skipping row for '{program}'. Contains non-numeric data.")
-            
-            if not program_ratings:
-                print(f"Warning: The file '{file_path}' has a header but no data rows.")
-                
-    except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-    
-    return program_ratings
+# === Initialize Population ===
+def init_population(programs, pop_size=10):
+    """Generate random schedules (permutations of programs)"""
+    return [random.sample(programs, len(programs)) for _ in range(pop_size)]
 
-# Path to the CSV file
-# *** THIS IS THE ONLY LINE I CHANGED TO MATCH YOUR FILE ***
-file_path = '/content/program_ratings_modified.csv' 
+# === Fitness Function ===
+def fitness(schedule, ratings):
+    """Calculate total rating as fitness value"""
+    return sum(ratings[p] for p in schedule)
 
-# Try to load ratings from the file
-ratings = read_csv_to_dict(file_path)
+# === Selection ===
+def selection(pop, ratings):
+    """Select top two individuals with best fitness"""
+    return sorted(pop, key=lambda s: fitness(s, ratings), reverse=True)[:2]
 
-# If loading failed (ratings is empty), use sample data
-if not ratings:
-    print("Warning: Could not load data from CSV. Using sample data instead.")
-    ratings = {
-        'News': [4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5],
-        'Movie': [3.0, 3.5, 4.0, 4.5, 5.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
-        'Sports': [4.0, 4.5, 5.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.0, 4.5],
-        'Comedy': [3.5, 3.0, 2.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 2.5],
-        'Drama': [2.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 2.5, 3.0, 3.5]
-    }
+# === Crossover ===
+def crossover(parent1, parent2, co_rate):
+    """Perform single-point crossover"""
+    if random.random() < co_rate:
+        point = random.randint(1, len(parent1) - 2)
+        child = parent1[:point] + [p for p in parent2 if p not in parent1[:point]]
+        return child
+    return parent1.copy()
 
-##################################### DEFINING PARAMETERS AND DATASET ################################################################
-GEN = 100
-POP = 50
-CO_R = 0.8
-MUT_R = 0.2
-EL_S = 2
+# === Mutation ===
+def mutate(schedule, mut_rate):
+    """Swap two random positions"""
+    if random.random() < mut_rate:
+        i, j = random.sample(range(len(schedule)), 2)
+        schedule[i], schedule[j] = schedule[j], schedule[i]
+    return schedule
 
-all_programs = list(ratings.keys()) # all programs
-all_time_slots = list(range(6, 24)) # time slots [6, 7, ..., 23]
-SCHEDULE_LENGTH = len(all_time_slots) # This is 18
+# === Genetic Algorithm ===
+def genetic_algorithm(data, co_rate=0.8, mut_rate=0.02, generations=50, pop_size=10):
+    """Main GA loop with robust column detection"""
 
-if not all_programs:
-    raise ValueError("Critical Error: No programs available from CSV or sample data. The script cannot continue.")
+    # --- Flexible program column detection ---
+    program_col_candidates = ['Program', 'Type of Program', 'Show', 'Title']
+    program_col = None
+    for col in program_col_candidates:
+        if col in data.columns:
+            program_col = col
+            break
+    if program_col is None:
+        raise KeyError(f"Dataset must contain a program column. Tried: {program_col_candidates}")
 
-######################################### DEFINING FUNCTIONS ########################################################################
+    # --- Flexible rating column detection ---
+    rating_col_candidates = ['Rating', 'Ratings', 'Score', 'Popularity']
+    rating_col = None
+    for col in rating_col_candidates:
+        if col in data.columns:
+            rating_col = col
+            break
+    if rating_col is None:
+        raise KeyError(f"Dataset must contain a rating column. Tried: {rating_col_candidates}")
 
-# defining fitness function
-def fitness_function(schedule):
-    total_rating = 0
-    for time_slot, program in enumerate(schedule):
-        if program in ratings:
-            if time_slot < len(ratings[program]):
-                total_rating += ratings[program][time_slot]
-            else:
-                print(f"Warning: Rating for program '{program}' at time slot {time_slot} is missing.")
-        else:
-            print(f"Warning: Program '{program}' not found in ratings directory.")
-    return total_rating
+    # --- Prepare programs and ratings dictionary ---
+    programs = list(data[program_col])
+    ratings = dict(zip(data[program_col], data[rating_col]))
 
-# Create a single, completely random schedule
-def create_random_schedule():
-    return [random.choice(all_programs) for _ in range(SCHEDULE_LENGTH)]
+    # --- Initialize population ---
+    population = init_population(programs, pop_size)
 
-############################################# GENETIC ALGORITHM #############################################################################
-
-# Crossover
-def crossover(schedule1, schedule2):
-    if len(schedule1) < 2 or len(schedule2) < 2:
-        return schedule1, schedule2
-    crossover_point = random.randint(1, SCHEDULE_LENGTH - 1)
-    child1 = schedule1[:crossover_point] + schedule2[crossover_point:]
-    child2 = schedule2[:crossover_point] + schedule1[crossover_point:]
-    return child1, child2
-
-# Mutating
-def mutate(schedule):
-    schedule_copy = schedule.copy()
-    mutation_point = random.randint(0, SCHEDULE_LENGTH - 1)
-    new_program = random.choice(all_programs)
-    schedule_copy[mutation_point] = new_program
-    return schedule_copy
-
-# genetic algorithm
-def genetic_algorithm(generations=GEN, population_size=POP, crossover_rate=CO_R, mutation_rate=MUT_R, elitism_size=EL_S):
-
-    population = [create_random_schedule() for _ in range(population_size)]
-    
-    best_schedule_ever = []
-    best_fitness_ever = 0
-
-    for generation in range(generations):
-        pop_with_fitness = []
-        for schedule in population:
-            fitness = fitness_function(schedule)
-            pop_with_fitness.append((schedule, fitness))
-            
-            if fitness > best_fitness_ever:
-                best_fitness_ever = fitness
-                best_schedule_ever = schedule
-
-        pop_with_fitness.sort(key=lambda x: x[1], reverse=True)
-        
+    # --- Evolution loop ---
+    for _ in range(generations):
         new_population = []
-
-        # Elitism
-        for i in range(elitism_size):
-            new_population.append(pop_with_fitness[i][0])
-
-        while len(new_population) < population_size:
-            # Selection
-            parent1 = random.choice(pop_with_fitness[:population_size // 2])[0]
-            parent2 = random.choice(pop_with_fitness[:population_size // 2])[0]
-
-            # Crossover
-            if random.random() < crossover_rate:
-                child1, child2 = crossover(parent1, parent2)
-            else:
-                child1, child2 = parent1.copy(), parent2.copy()
-
-            # Mutation
-            if random.random() < mutation_rate:
-                child1 = mutate(child1)
-            if random.random() < mutation_rate:
-                child2 = mutate(child2)
-
-            new_population.append(child1)
-            if len(new_population) < population_size:
-                new_population.append(child2)
-
+        for _ in range(pop_size):
+            parents = selection(population, ratings)
+            child = crossover(parents[0], parents[1], co_rate)
+            child = mutate(child, mut_rate)
+            new_population.append(child)
         population = new_population
 
-    return best_schedule_ever, best_fitness_ever
+    # --- Get best schedule ---
+    best_schedule = selection(population, ratings)[0]
+    best_fitness = fitness(best_schedule, ratings)
 
-##################################################### RESULTS ###################################################################################
-
-# Call the Genetic Algorithm
-final_schedule, final_rating = genetic_algorithm()
-
-print("\nFinal Optimal Schedule (from GA):")
-if not final_schedule:
-    print("No valid schedule could be generated.")
-else:
-    for time_slot, program in enumerate(final_schedule):
-        if time_slot < len(all_time_slots):
-            print(f"Time Slot {all_time_slots[time_slot]:02d}:00 - Program {program}")
-
-print(f"\nTotal Ratings: {final_rating:.2f}")
+    return best_schedule, best_fitness   
